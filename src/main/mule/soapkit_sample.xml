@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:xml-module="http://www.mulesoft.org/schema/mule/xml-module"
+	xmlns:apikit-soap="http://www.mulesoft.org/schema/mule/apikit-soap"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd 
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/apikit-soap http://www.mulesoft.org/schema/mule/apikit-soap/current/mule-apikit-soap.xsd
+http://www.mulesoft.org/schema/mule/xml-module http://www.mulesoft.org/schema/mule/xml-module/current/mule-xml-module.xsd">
+	<flow name="soapkit-https-listener-router">
+		<http:listener config-ref="api-httpListenerConfig" path="/PersonServiceImplService" outputMimeType="application/xml" allowedMethods="POST">
+			<http:response statusCode="#[vars.httpStatus default 200]">
+			</http:response>
+			<http:error-response statusCode="#[vars.httpStatus default 500]">
+				<http:body><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+		
+		<apikit-soap:router doc:name="SOAP Kit Router" doc:id="69b70395-b4ca-4e40-ae7b-b2b63ff8de94"
+			config-ref="soap-config" outputMimeType="application/xml">
+			<ee:repeatable-file-store-stream bufferUnit="MB" />
+			<apikit-soap:message ><![CDATA[#[%dw 2.0
+output application/xml
+---
+payload]]]></apikit-soap:message>
+			<apikit-soap:attributes><![CDATA[#[%dw 2.0
+output application/java
+---
+{
+	headers: attributes.headers,
+	method: attributes.method,
+	queryString: attributes.queryString
+}]]]></apikit-soap:attributes>
+		</apikit-soap:router>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="419031a1-8956-4b4b-b3b4-61e4a0db9757" type="EXPRESSION">
+				<ee:transform doc:name="prepare Error Resaponse Message" doc:id="78bd9882-f0e5-4e5b-9761-367aaaebbb02" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/xml
+ns soapenv http://schemas.xmlsoap.org/soap/envelope/
+---
+soapenv#Envelope : {
+	soapenv#Body : {
+		TYPE : error.errorType.identifier,
+		MESSAGE : "XML SYNTAX ERROR"
+		}
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="05b31e6f-ba6f-464e-87e4-67f2f5ab2409" type="ANY">
+				<ee:transform doc:name="prepare Error Resaponse Message" doc:id="608e951c-2f83-4595-a2aa-bb88715c59ee">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/xml
+ns soapenv http://schemas.xmlsoap.org/soap/envelope/
+---
+soapenv#Envelope : {
+	soapenv#Body : {
+		TYPE : error.errorType.identifier,
+		MESSAGE : error.errorMessage.payload
+		}
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+    
+    
+    <flow name="requestedPersonInfo:\soap-config">
+        <flow-ref doc:name="validate-schema" name="validate-schema" doc:id="90266e99-0144-4f27-9402-86989b32c481" /> 
+		<ee:transform  doc:name="Prepare Response Message" doc:id="71a4b2da-ebd8-4665-ad99-8e6e1b3f917f">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/xml
+ns ank http://ankuran.online/
+---
+ank#requestedPersonInfoResponse: {
+	return:{
+		id: uuid(),
+		message: "Hello " ++ payload.body.requestedPersonInfo.arg0.firstName ++ " " ++ payload.body.requestedPersonInfo.arg0.middleName ++ " " ++ payload.body.requestedPersonInfo.arg0.lastName ++ ", your datails are saved successfully."
+	}
+}
+]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="c9421c41-de0d-4b5d-95a3-a5c1841ed15d" type="XML-MODULE:SCHEMA_NOT_HONOURED">
+				<ee:transform doc:name="prepare Error Resaponse Message" doc:id="9fb214b9-19cf-4dd5-b960-d24bfbc70f2f">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/xml
+ns soapenv http://schemas.xmlsoap.org/soap/envelope/
+---
+soapenv#Envelope : {
+	soapenv#Body : {
+		TYPE : error.errorType.namespace,
+		MESSAGE : "SCHEMA NOT HONOURED"
+	}
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+		</error-handler>
+    </flow>
+	<sub-flow name="validate-schema" doc:id="a5ba4180-5bd2-4125-aae9-587bca6f7601" >
+		<ee:transform doc:name="prepare input Message" doc:id="0ebbcd47-f313-43c0-982a-aeccc7199c0f">
+         <ee:message>
+                <ee:set-payload><![CDATA[payload
+]]></ee:set-payload>
+            </ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="requestedBody" ><![CDATA[%dw 2.0
+output application/xml
+---
+payload.body]]></ee:set-variable>
+			</ee:variables>
+        
+</ee:transform>
+		<logger level="INFO" doc:name="Input Message" doc:id="987b1327-ff98-4d5d-aad9-3092dd0a02c5" message="Input Message : #[vars.requestedBody]"/>
+		<xml-module:validate-schema doc:name="Validate schema" doc:id="a3fb37ea-1087-4fbc-98c1-a271cb69dfd7" config-ref="XML_Config" schemas="xsd\personService.xsd">
+			<xml-module:content ><![CDATA[#[vars.requestedBody]]]></xml-module:content>
+		</xml-module:validate-schema>
+		
+</sub-flow>
+	</mule>
